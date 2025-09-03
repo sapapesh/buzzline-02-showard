@@ -1,5 +1,5 @@
 """
-kafka_consumer_case.py
+kafka_consumer_sahoward.py
 
 Consume messages from a Kafka topic and process them.
 """
@@ -8,99 +8,77 @@ Consume messages from a Kafka topic and process them.
 # Import Modules
 #####################################
 
-# Import packages from Python Standard Library
 import os
-
-# Import external packages
+import sys
 from dotenv import load_dotenv
-
-# Import functions from local modules
-from utils.utils_consumer import create_kafka_consumer
+from kafka import KafkaConsumer  # using kafka-python client
 from utils.utils_logger import logger
 
-#####################################
-# Load Environment Variables
-#####################################
-
-load_dotenv()
 
 #####################################
-# Getter Functions for .env Variables
+# Keyword Detection
 #####################################
 
+FOOD_KEYWORDS = ["gyros", "souvlaki"]
+
+
+def contains_food(sentence: str) -> bool:
+    """Return True if the sentence mentions food keywords."""
+    sentence_lower = sentence.lower()
+    return any(keyword in sentence_lower for keyword in FOOD_KEYWORDS)
+
+
+#####################################
+# Getter Function for .env Variables
+#####################################
 
 def get_kafka_topic() -> str:
     """Fetch Kafka topic from environment or use default."""
-    topic = os.getenv("KAFKA_TOPIC", "unknown_topic")
-    logger.info(f"Kafka topic: {topic}")
+    topic = os.getenv("KAFKA_TOPIC", "buzz_topic")
+    logger.info(f"Kafka topic (consumer): {topic}")
     return topic
 
 
-def get_kafka_consumer_group_id() -> int:
-    """Fetch Kafka consumer group id from environment or use default."""
-    group_id: str = os.getenv("KAFKA_CONSUMER_GROUP_ID_JSON", "default_group")
-    logger.info(f"Kafka consumer group id: {group_id}")
-    return group_id
-
-
 #####################################
-# Define a function to process a single message
-# #####################################
-
-
-def process_message(message: str) -> None:
-    """
-    Process a single message.
-
-    For now, this function simply logs the message.
-    You can extend it to perform other tasks, like counting words
-    or storing data in a database.
-
-    Args:
-        message (str): The message to process.
-    """
-    logger.info(f"Processing message: {message}")
-
-
-#####################################
-# Define main function for this module
+# Main Function
 #####################################
 
-
-def main() -> None:
-    """
-    Main entry point for the consumer.
-
-    - Reads the Kafka topic name and consumer group ID from environment variables.
-    - Creates a Kafka consumer using the `create_kafka_consumer` utility.
-    - Processes messages from the Kafka topic.
-    """
+def main():
     logger.info("START consumer.")
+    logger.info("Loading environment variables from .env file...")
+    load_dotenv()
 
-    # fetch .env content
     topic = get_kafka_topic()
-    group_id = get_kafka_consumer_group_id()
-    logger.info(f"Consumer: Topic '{topic}' and group '{group_id}'...")
 
-    # Create the Kafka consumer using the helpful utility function.
-    consumer = create_kafka_consumer(topic, group_id)
-
-     # Poll and process messages
-    logger.info(f"Polling messages from topic '{topic}'...")
     try:
-        for message in consumer:
-            message_str = message.value
-            logger.debug(f"Received message at offset {message.offset}: {message_str}")
-            process_message(message_str)
+        consumer = KafkaConsumer(
+            topic,
+            bootstrap_servers=os.getenv("KAFKA_BROKER", "localhost:9092"),
+            group_id="food-detector-group",
+            auto_offset_reset="earliest",
+            value_deserializer=lambda m: m.decode("utf-8"),
+        )
+    except Exception as e:
+        logger.error(f"Failed to create Kafka consumer: {e}")
+        sys.exit(1)
+
+    logger.info(f"Listening for messages on topic '{topic}'...")
+
+    try:
+        for msg in consumer:
+            sentence = msg.value
+            if contains_food(sentence):
+                logger.info(f"🍴 Food mention detected: {sentence}")
+                print(f"🍴 Food mention detected: {sentence}")
+            else:
+                logger.info(f"Received: {sentence}")
+                print(f"Received: {sentence}")
     except KeyboardInterrupt:
         logger.warning("Consumer interrupted by user.")
-    except Exception as e:
-        logger.error(f"Error while consuming messages: {e}")
     finally:
         consumer.close()
-        logger.info(f"Kafka consumer for topic '{topic}' closed.")
-
-    logger.info(f"END consumer for topic '{topic}' and group '{group_id}'.")
+        logger.info("Kafka consumer closed.")
+        logger.info("END consumer.")
 
 
 #####################################
